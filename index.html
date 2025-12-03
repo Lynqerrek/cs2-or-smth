@@ -3,386 +3,310 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D FPS Demo — AK / Glock / Knife (Three.js)</title>
+  <title>3D FPS Demo — AK / Glock / Knife (Three.js) — Improved</title>
   <style>
-    html,body{height:100%;margin:0;background:#000}
+    html,body{height:100%;margin:0;background:linear-gradient(#6fb1ff,#08304b);overflow:hidden;font-family:system-ui,Segoe UI,Roboto,Arial}
     canvas{display:block}
-    .overlay{
-      position:fixed;left:0;right:0;top:0;pointer-events:none;z-index:10;
-      display:flex;justify-content:center;align-items:center;height:100%;
-    }
-    .crosshair{
-      width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.9);
-      pointer-events:none;transform:translate(-50%,-50%);position:relative;left:50%;top:50%;
-      box-shadow:0 0 8px rgba(255,255,255,0.25);
-    }
-    .hud{
-      position:fixed;left:12px;bottom:12px;color:#fff;font-family:system-ui,Segoe UI,Roboto,Arial;
-      background:rgba(0,0,0,0.35);padding:8px 10px;border-radius:6px;backdrop-filter:blur(3px);
-      pointer-events:auto;z-index:20;font-size:13px;
-    }
-    .hint{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);color:#ddd;z-index:20;font-size:13px;background:rgba(0,0,0,0.25);padding:6px 10px;border-radius:6px}
-    button.big{padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.03);color:#fff}
+    .overlay{position:fixed;left:0;right:0;top:0;pointer-events:none;z-index:10;display:flex;justify-content:center;align-items:center;height:100%}
+    .crosshair{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.95);pointer-events:none;transform:translate(-50%,-50%);position:relative;left:50%;top:50%;box-shadow:0 0 8px rgba(255,255,255,0.18)}
+    .hud{position:fixed;left:12px;bottom:12px;color:#fff;font-size:13px;background:rgba(0,0,0,0.38);padding:8px 10px;border-radius:6px;z-index:20}
+    .topbar{position:fixed;left:12px;top:12px;color:#fff;z-index:20;background:rgba(0,0,0,0.25);padding:8px;border-radius:6px}
+    .center-ui{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;color:#fff;padding:16px;background:rgba(0,0,0,0.45);border-radius:8px}
+    button{cursor:pointer}
+    .small{font-size:12px;padding:6px 8px}
   </style>
 </head>
 <body>
   <div class="overlay"><div class="crosshair"></div></div>
+  <div class="topbar" id="topbar">Press <strong>1</strong>/<strong>2</strong>/<strong>3</strong> to switch weapons • <strong>R</strong> to reload</div>
   <div class="hud" id="hud">Weapon: <strong id="weaponName">AK-47</strong> • Ammo: <span id="ammo">30</span>/<span id="reserve">90</span></div>
-  <div class="hint" id="hint">Click to lock pointer and start — 1 = AK | 2 = Glock | 3 = Knife — LMB to fire</div>
+  <div class="center-ui" id="centerUI">Loading... <div style="height:8px"></div><button id="enableBtn" class="small">Enable Controls (click)</button></div>
 
   <script type="module">
+    // Improved single-file Three.js FPS demo
     import * as THREE from 'https://unpkg.com/three@0.154.0/build/three.module.js';
     import { PointerLockControls } from 'https://unpkg.com/three@0.154.0/examples/jsm/controls/PointerLockControls.js';
 
-    // ---------- Basic scene ----------
+    // ---------- Scene & Renderer ----------
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.FogExp2(0x88ccee, 0.0025);
 
-    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.05, 1000);
     camera.position.set(0, 1.6, 5);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     document.body.appendChild(renderer.domElement);
 
-    // ---------- Lights ----------
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(5, 10, 2);
-    scene.add(dir);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    // ---------- Lighting ----------
+    const hemi = new THREE.HemisphereLight(0xddeeff, 0x444455, 0.9);
+    hemi.position.set(0, 50, 0);
+    scene.add(hemi);
 
-    // ---------- Floor / environment ----------
-    const floorGeo = new THREE.PlaneGeometry(200, 200);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x556b2f });
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(10, 20, 10);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048,2048);
+    dir.shadow.camera.left = -50; dir.shadow.camera.right = 50; dir.shadow.camera.top = 50; dir.shadow.camera.bottom = -50;
+    scene.add(dir);
+
+    // small warm rim
+    const rim = new THREE.PointLight(0xffe6c7, 0.45, 40);
+    rim.position.set(-5, 3, -5);
+    scene.add(rim);
+
+    // ---------- Environment ----------
+    const floorMat = new THREE.MeshStandardMaterial({ color:0x556b2f, roughness:0.9, metalness:0.05 });
+    const floorGeo = new THREE.PlaneGeometry(300,300);
     const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
+    floor.rotation.x = -Math.PI/2;
+    floor.receiveShadow = true;
     scene.add(floor);
 
-    // some boxes to shoot at
-    const boxGeo = new THREE.BoxGeometry(1,1,1);
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0x8b0000 });
-    for(let i=0;i<20;i++){
-      const b = new THREE.Mesh(boxGeo, boxMat.clone());
-      b.material.roughness = 0.7;
-      b.position.set((Math.random()-0.5)*50,0.5,(Math.random()-0.5)*50 - 30);
-      b.rotation.y = Math.random()*Math.PI*2;
-      scene.add(b);
+    // crates as targets (cast shadows)
+    const crateGeo = new THREE.BoxGeometry(1.4,1.4,1.4);
+    for(let i=0;i<25;i++){
+      const mat = new THREE.MeshStandardMaterial({color: new THREE.Color().setHSL(0.03 + Math.random()*0.1, 0.6, 0.25), roughness:0.7});
+      const crate = new THREE.Mesh(crateGeo, mat);
+      crate.position.set((Math.random()-0.5)*60,0.7,(Math.random()*-60)-5);
+      crate.castShadow = true; crate.receiveShadow = true;
+      scene.add(crate);
     }
 
-    // ---------- Controls (pointer lock) ----------
-    const controls = new PointerLockControls(camera, document.body);
-    document.addEventListener('click', ()=>{
+    // skybox-like gradient using large sphere
+    const skyGeo = new THREE.SphereGeometry(400, 16, 8);
+    const skyMat = new THREE.MeshBasicMaterial({color:0x86c3ff, side: THREE.BackSide});
+    const sky = new THREE.Mesh(skyGeo, skyMat);
+    scene.add(sky);
+
+    // ---------- Controls (pointer lock + fallback drag look) ----------
+    const controls = new PointerLockControls(camera, renderer.domElement);
+    let pointerLocked = false;
+    controls.addEventListener('lock', ()=>{ pointerLocked = true; centerUI.style.display='none'; });
+    controls.addEventListener('unlock', ()=>{ pointerLocked = false; centerUI.style.display=''; });
+
+    const centerUI = document.getElementById('centerUI');
+    const enableBtn = document.getElementById('enableBtn');
+    enableBtn.addEventListener('click', ()=>{ // request pointer lock when user clicks
       controls.lock();
-      document.getElementById('hint').style.display = 'none';
-    }, {once:false});
-
-    // simple WASD movement
-    const move = { forward:false, backward:false, left:false, right:false };
-    document.addEventListener('keydown', e=>{
-      if(e.code==='KeyW') move.forward=true;
-      if(e.code==='KeyS') move.backward=true;
-      if(e.code==='KeyA') move.left=true;
-      if(e.code==='KeyD') move.right=true;
-
-      // weapon keys
-      if(e.key === '1') switchWeapon(0);
-      if(e.key === '2') switchWeapon(1);
-      if(e.key === '3') switchWeapon(2);
-    });
-    document.addEventListener('keyup', e=>{
-      if(e.code==='KeyW') move.forward=false;
-      if(e.code==='KeyS') move.backward=false;
-      if(e.code==='KeyA') move.left=false;
-      if(e.code==='KeyD') move.right=false;
     });
 
-    // ---------- Player hands + weapon container ----------
-    // We'll attach a group to the camera so it moves with the camera.
-    const hands = new THREE.Group();
-    camera.add(hands);
-    scene.add(camera);
+    // implement fallback: allow mouse drag to look when pointer not locked
+    let dragging = false; let prevMouse = null; let yaw = 0, pitch = 0;
+    renderer.domElement.addEventListener('mousedown', (e)=>{ dragging = true; prevMouse = {x:e.clientX, y:e.clientY}; });
+    window.addEventListener('mouseup', ()=>{ dragging = false; prevMouse = null; });
+    window.addEventListener('mousemove', (e)=>{
+      if(pointerLocked) return; // pointerlock handles it
+      if(!dragging) return;
+      const dx = e.clientX - prevMouse.x; const dy = e.clientY - prevMouse.y;
+      prevMouse = {x:e.clientX, y:e.clientY};
+      const sensitivity = 0.0025;
+      yaw -= dx * sensitivity;
+      pitch -= dy * sensitivity;
+      pitch = Math.max(-Math.PI/2 + 0.05, Math.min(Math.PI/2 - 0.05, pitch));
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+    });
 
-    // position hands in front of the camera (like in FPS)
-    hands.position.set(0,-0.25,-0.45);
+    // ---------- Player hands + weapons (improved models & animation mixer) ----------
+    const handGroup = new THREE.Group();
+    camera.add(handGroup);
+    handGroup.position.set(0, -0.25, -0.45);
 
-    // helper to create a simple "hand".
-    function makeHand(side = 'left'){
-      const g = new THREE.Group();
-      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.08,0.24), new THREE.MeshStandardMaterial({color:0xffd1a4}));
-      palm.position.set(side==='left'?-0.12:0.12, -0.05, -0.12);
-      g.add(palm);
-      return g;
+    // make more detailed stylized hands
+    function makeHandMesh(side='left'){
+      const group = new THREE.Group();
+      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.08,0.28), new THREE.MeshStandardMaterial({color:0xffd1a4, roughness:0.7}));
+      palm.position.set(side==='left'?-0.13:0.13, -0.05, -0.12);
+      group.add(palm);
+      // fingers (simple)
+      for(let i=0;i<4;i++){
+        const finger = new THREE.Mesh(new THREE.BoxGeometry(0.03,0.09,0.05), new THREE.MeshStandardMaterial({color:0xffd1a4}));
+        finger.position.set((side==='left'?-0.13:0.13) + (i-1.5)*0.02, -0.09, -0.05 - i*0.004);
+        finger.rotation.x = -0.1;
+        group.add(finger);
+      }
+      group.visible = true;
+      return group;
     }
+    const leftHand = makeHandMesh('left'), rightHand = makeHandMesh('right');
+    handGroup.add(leftHand); handGroup.add(rightHand);
 
-    // build three weapons as simple geometry models
+    // weapon factory functions with animations (using simple tween-like updates)
     function makeAK(){
       const g = new THREE.Group();
-      // body
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.12,0.12), new THREE.MeshStandardMaterial({color:0x2b2b2b}));
-      body.position.set(0.1,-0.02,0);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.0,0.12,0.13), new THREE.MeshStandardMaterial({color:0x212121, roughness:0.4, metalness:0.5}));
+      body.position.set(0.15,-0.02,0);
       g.add(body);
-      // stock
-      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.1,0.12), new THREE.MeshStandardMaterial({color:0x4b2b1f}));
-      stock.position.set(-0.6,0,-0.02);
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.42,0.12,0.12), new THREE.MeshStandardMaterial({color:0x3b2a22, roughness:0.8}));
+      stock.position.set(-0.62,0,-0.01);
       g.add(stock);
-      // barrel
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.9,8), new THREE.MeshStandardMaterial({color:0x111111}));
-      barrel.rotation.z = Math.PI/2;
-      barrel.position.set(0.7,-0.02,0);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.9,10), new THREE.MeshStandardMaterial({color:0x0d0d0d, roughness:0.2, metalness:1.0}));
+      barrel.rotation.z = Math.PI/2; barrel.position.set(0.7,-0.02,0);
       g.add(barrel);
-      // magazine
       const mag = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.36,0.06), new THREE.MeshStandardMaterial({color:0x111111}));
-      mag.position.set(0.02,-0.2,0);
+      mag.position.set(0.01,-0.2,0);
       mag.rotation.z = 0.15;
       g.add(mag);
+      g.userData.anim = {recoil:0, slide:0};
       g.name = 'AK-47';
       g.scale.set(0.9,0.9,0.9);
       return g;
     }
-
     function makeGlock(){
       const g = new THREE.Group();
-      const slide = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.08,0.12), new THREE.MeshStandardMaterial({color:0x222222}));
-      slide.position.set(0.15,-0.02,0);
+      const slide = new THREE.Mesh(new THREE.BoxGeometry(0.64,0.08,0.12), new THREE.MeshStandardMaterial({color:0x333333, roughness:0.35, metalness:0.6}));
+      slide.position.set(0.2,-0.02,0);
       g.add(slide);
-      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.32,0.08), new THREE.MeshStandardMaterial({color:0x111111}));
-      grip.position.set(-0.12,-0.18,0);
-      grip.rotation.z = -0.06;
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.36,0.08), new THREE.MeshStandardMaterial({color:0x0b0b0b, roughness:0.9}));
+      grip.position.set(-0.12,-0.2,0);
       g.add(grip);
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,0.35,8), new THREE.MeshStandardMaterial({color:0x111111}));
-      barrel.rotation.z = Math.PI/2;
-      barrel.position.set(0.4,-0.02,0);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,0.36,8), new THREE.MeshStandardMaterial({color:0x0b0b0b, metalness:0.9}));
+      barrel.rotation.z = Math.PI/2; barrel.position.set(0.44,-0.02,0);
       g.add(barrel);
+      g.userData.anim = {recoil:0, slide:0};
       g.name = 'Glock 19';
-      g.scale.set(1.1,1.1,1.1);
       return g;
     }
-
     function makeKnife(){
       const g = new THREE.Group();
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.02,0.3,0.02), new THREE.MeshStandardMaterial({color:0xc0c0c0}));
-      blade.position.set(0.25,-0.05,0);
-      blade.rotation.z = 0.25;
-      g.add(blade);
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.09,0.05), new THREE.MeshStandardMaterial({color:0x221711}));
-      handle.position.set(-0.02,-0.12,0);
-      g.add(handle);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.02,0.32,0.02), new THREE.MeshStandardMaterial({color:0xcfcfcf, roughness:0.15, metalness:0.9}));
+      blade.position.set(0.26,-0.06,0);
+      blade.rotation.z = 0.28; g.add(blade);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.1,0.06), new THREE.MeshStandardMaterial({color:0x2b1a0f, roughness:0.9}));
+      handle.position.set(-0.02,-0.12,0); g.add(handle);
+      g.userData.anim = {swing:0};
       g.name = 'Knife';
-      g.scale.set(1.6,1.6,1.6);
+      g.scale.set(1.4,1.4,1.4);
       return g;
     }
 
-    // add hands
-    const leftHand = makeHand('left');
-    const rightHand = makeHand('right');
-    hands.add(leftHand);
-    hands.add(rightHand);
-
-    // attach weapons to hands group (positioned so they appear as held)
     const weapons = [makeAK(), makeGlock(), makeKnife()];
-    weapons.forEach((w,i)=>{
-      w.position.set(0,0,0);
-      w.visible = false;
-      // place them a bit to the right so they look like in front of the camera
-      w.position.set(0.25, -0.12, -0.2);
-      w.rotation.set(-0.15, 0.2, 0);
-      hands.add(w);
-    });
+    weapons.forEach((w)=>{ w.position.set(0.25,-0.12,-0.2); w.rotation.set(-0.15,0.2,0); w.visible=false; handGroup.add(w); w.castShadow=true; });
+    let activeWeapon = 0; weapons[activeWeapon].visible = true;
 
-    // initial active weapon
-    let activeWeapon = 0;
-    weapons[activeWeapon].visible = true;
+    // ammo and data
+    const weaponData = [
+      {name:'AK-47', ammo:30, mag:30, reserve:90, fireRate:0.095},
+      {name:'Glock 19', ammo:15, mag:15, reserve:45, fireRate:0.14},
+      {name:'Knife', ammo:1, mag:1, reserve:0, fireRate:0.45}
+    ];
+
     const hudWeaponName = document.getElementById('weaponName');
     const hudAmmo = document.getElementById('ammo');
     const hudReserve = document.getElementById('reserve');
-
-    // ammo per weapon (simple)
-    const weaponData = [
-      {name:'AK-47', ammo:30, mag:30, reserve:90, fireRate: 0.12},
-      {name:'Glock 19', ammo:15, mag:15, reserve:45, fireRate: 0.18},
-      {name:'Knife', ammo:1, mag:1, reserve:0, fireRate:0.5}
-    ];
-
-    function updateHUD(){
-      hudWeaponName.textContent = weaponData[activeWeapon].name;
-      hudAmmo.textContent = weaponData[activeWeapon].ammo;
-      hudReserve.textContent = weaponData[activeWeapon].reserve;
-    }
+    function updateHUD(){ hudWeaponName.textContent = weaponData[activeWeapon].name; hudAmmo.textContent = weaponData[activeWeapon].ammo; hudReserve.textContent = weaponData[activeWeapon].reserve; }
     updateHUD();
 
-    // ---------- Weapon switching with animation ----------
-    let switching = false;
-    function switchWeapon(index){
-      if(index === activeWeapon || switching) return;
-      switching = true;
-      const old = weapons[activeWeapon];
-      const nw = weapons[index];
-      // animate old moving down/out
-      const tDur = 200; // ms
+    // ---------- muzzle flash & particles ----------
+    const muzzleGroup = new THREE.Group(); scene.add(muzzleGroup);
+    function spawnMuzzleFlash(worldPos, normal){
+      // sprite flash
+      const spriteMat = new THREE.SpriteMaterial({map: null, color:0xffeecc, blending:THREE.AdditiveBlending});
+      // create a small quad with emissive material (no external textures)
+      const geom = new THREE.PlaneGeometry(0.18,0.12);
+      const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({color:0xfff0b0, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending}));
+      mesh.position.copy(worldPos);
+      // face camera approximately
+      mesh.lookAt(camera.position);
+      scene.add(mesh);
+      setTimeout(()=>{ scene.remove(mesh); }, 60);
+
+      // small spark particles
+      const sparks = [];
+      for(let i=0;i<8;i++){
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.01,6,6), new THREE.MeshBasicMaterial({color:0xffb86b}));
+        sp.position.copy(worldPos);
+        sp.velocity = new THREE.Vector3((Math.random()-0.5)*0.6, Math.random()*0.7, (Math.random()-0.5)*0.6);
+        scene.add(sp); sparks.push(sp);
+        setTimeout(()=>{ if(sp.parent) scene.remove(sp); }, 700);
+      }
       const start = performance.now();
-      const fromPos = old.position.clone();
-      const toPos = fromPos.clone().add(new THREE.Vector3(0, -0.4, 0.2));
-      const fromRot = old.rotation.clone();
-      const toRot = fromRot.clone().add(new THREE.Euler(0.6, -0.6, 0.3));
-
-      nw.visible = true;
-      // set incoming start (off-screen)
-      nw.position.set(fromPos.x, fromPos.y - 0.4, fromPos.z + 0.2);
-      nw.rotation.set(fromRot.x + 0.6, fromRot.y - 0.6, fromRot.z + 0.3);
-
-      function animSwitch(now){
-        const dt = Math.min((now - start) / tDur, 1);
-        // old moves out
-        old.position.lerpVectors(fromPos, toPos, dt);
-        old.rotation.x = THREE.MathUtils.lerp(fromRot.x, toRot.x, dt);
-        old.rotation.y = THREE.MathUtils.lerp(fromRot.y, toRot.y, dt);
-        old.rotation.z = THREE.MathUtils.lerp(fromRot.z, toRot.z, dt);
-        // new moves in
-        nw.position.lerpVectors(new THREE.Vector3(fromPos.x, fromPos.y - 0.4, fromPos.z + 0.2), fromPos, dt);
-        nw.rotation.x = THREE.MathUtils.lerp(fromRot.x + 0.6, fromRot.x, dt);
-        nw.rotation.y = THREE.MathUtils.lerp(fromRot.y - 0.6, fromRot.y, dt);
-        nw.rotation.z = THREE.MathUtils.lerp(fromRot.z + 0.3, fromRot.z, dt);
-
-        if(dt < 1){
-          requestAnimationFrame(animSwitch);
-        } else {
-          old.visible = false;
-          activeWeapon = index;
-          switching = false;
-          updateHUD();
-        }
-      }
-      requestAnimationFrame(animSwitch);
-    }
-
-    // ---------- Shooting logic (raycast) ----------
-    const raycaster = new THREE.Raycaster();
-    let lastShotTime = 0;
-
-    function fireWeapon(){
-      const now = performance.now() / 1000;
-      const w = weaponData[activeWeapon];
-      if(now - lastShotTime < w.fireRate) return; // rate limit
-      if(w.ammo <= 0){
-        // click empty
-        // TODO: reload
-        return;
-      }
-      lastShotTime = now;
-
-      // muzzle / recoil effect: brief backward translation and rotation
-      const weaponMesh = weapons[activeWeapon];
-      const recoilStart = performance.now();
-      const recoilDur = 80;
-      const origPos = weaponMesh.position.clone();
-      const origRot = weaponMesh.rotation.clone();
-      const recoilOffset = new THREE.Vector3(0,0.03,0.05);
-      const recoilRot = origRot.clone().add(new THREE.Euler(-0.05,0,0));
-
-      (function doRecoil(now){
-        const dt = Math.min((now - recoilStart) / recoilDur, 1);
-        // push back quickly then return
-        const ease = dt < 0.5 ? dt*2 : 2 - dt*2;
-        weaponMesh.position.lerpVectors(origPos, origPos.clone().add(recoilOffset), ease);
-        weaponMesh.rotation.x = THREE.MathUtils.lerp(origRot.x, recoilRot.x, ease);
-        if(dt < 1) requestAnimationFrame(doRecoil);
-        else { weaponMesh.position.copy(origPos); weaponMesh.rotation.copy(origRot); }
+      (function updateSparks(now){
+        const t = (now - start)/1000;
+        for(const s of sparks){ s.position.addScaledVector(s.velocity, 0.016); s.velocity.y -= 1.2*0.016; s.material.opacity = Math.max(0, 1 - t*1.5); }
+        if(t < 0.7) requestAnimationFrame(updateSparks);
       })(performance.now());
-
-      // decrease ammo
-      w.ammo = Math.max(0, w.ammo - 1);
-      updateHUD();
-
-      // do a raycast from camera
-      const dir = new THREE.Vector3();
-      camera.getWorldDirection(dir);
-      raycaster.set(camera.getWorldPosition(new THREE.Vector3()), dir);
-      const hit = raycaster.intersectObjects(scene.children, true).find(i => i.object !== weapons[0] && i.object !== weapons[1] && i.object !== weapons[2] && i.object !== leftHand && i.object !== rightHand && i.object !== floor);
-      if(hit){
-        // simple effect: darken target and scale
-        const obj = hit.object;
-        if(obj.material && obj.material.color){
-          obj.material.color.offsetHSL(0,0,-0.15);
-        }
-        obj.scale.multiplyScalar(0.98);
-      }
-
-      // small flash sprite
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.06,8,8), new THREE.MeshBasicMaterial({color:0xfff0b6}));
-      const muzzlePos = weaponMesh.localToWorld(new THREE.Vector3(0.9,0,0));
-      flash.position.copy(muzzlePos);
-      scene.add(flash);
-      setTimeout(()=>scene.remove(flash), 80);
     }
 
-    window.addEventListener('mousedown', (e)=>{
-      if(e.button === 0) fireWeapon();
-    });
+    // ---------- Weapon switching with smooth animation ----------
+    let switching = false;
+    function switchWeapon(index){ if(index===activeWeapon||switching) return; switching=true; const old=weapons[activeWeapon], nw=weapons[index]; nw.visible=true; const start=performance.now(), dur=240; const fromPos=old.position.clone(), toPos=fromPos.clone().add(new THREE.Vector3(0,-0.45,0.25)); const fromRot=old.rotation.clone(), toRot=fromRot.clone().add(new THREE.Euler(0.8,-0.8,0.5)); nw.position.set(fromPos.x, fromPos.y-0.45, fromPos.z+0.25); nw.rotation.set(fromRot.x+0.6, fromRot.y-0.6, fromRot.z+0.3);
+      (function anim(t){ const p=Math.min((t-start)/dur,1); old.position.lerpVectors(fromPos,toPos,p); old.rotation.x = THREE.MathUtils.lerp(fromRot.x,toRot.x,p); old.rotation.y = THREE.MathUtils.lerp(fromRot.y,toRot.y,p); old.rotation.z = THREE.MathUtils.lerp(fromRot.z,toRot.z,p); nw.position.lerpVectors(new THREE.Vector3(fromPos.x, fromPos.y-0.45, fromPos.z+0.25), fromPos, p); nw.rotation.x = THREE.MathUtils.lerp(fromRot.x+0.6, fromRot.x, p); nw.rotation.y = THREE.MathUtils.lerp(fromRot.y-0.6, fromRot.y, p); nw.rotation.z = THREE.MathUtils.lerp(fromRot.z+0.3, fromRot.z, p); if(p<1) requestAnimationFrame(anim); else { old.visible=false; activeWeapon=index; switching=false; updateHUD(); } })(performance.now()); }
 
-    // ---------- Simple reload (R) ----------
-    document.addEventListener('keydown', e=>{
-      if(e.key.toLowerCase() === 'r') reload();
-    });
-    function reload(){
-      const w = weaponData[activeWeapon];
-      if(w.reserve <= 0) return;
-      const need = w.mag - w.ammo;
-      const take = Math.min(need, w.reserve);
-      w.ammo += take;
-      w.reserve -= take;
-      updateHUD();
+    // ---------- Shooting logic (raycast, recoil, animations) ----------
+    const raycaster = new THREE.Raycaster(); let lastShot = 0;
+    function fireWeapon(){ const now = performance.now()/1000; const w = weaponData[activeWeapon]; if(now - lastShot < w.fireRate) return; if(w.ammo<=0){ // empty sound could go here
+        return; }
+      lastShot = now; w.ammo = Math.max(0, w.ammo-1); updateHUD();
+      const weaponMesh = weapons[activeWeapon]; // animate recoil
+      if(weaponMesh.userData.anim) weaponMesh.userData.anim.recoil = 1.0; if(weaponMesh.userData.anim) weaponMesh.userData.anim.slide = 1.0;
+      // raycast
+      const origin = camera.getWorldPosition(new THREE.Vector3()); const dir = new THREE.Vector3(); camera.getWorldDirection(dir); raycaster.set(origin, dir);
+      const hits = raycaster.intersectObjects(scene.children, true).filter(i=>i.object!==weaponMesh && i.object!==leftHand && i.object!==rightHand && i.object!==floor);
+      if(hits.length>0){ const h = hits[0].object; if(h.material && h.material.color){ h.material.color.offsetHSL(0,-0.05,-0.04); } }
+      // muzzle flash at weapon muzzle world position
+      const muzzleLocal = new THREE.Vector3(0.95,0,0); const muzzleWorld = weaponMesh.localToWorld(muzzleLocal.clone()); spawnMuzzleFlash(muzzleWorld);
     }
 
-    // ---------- Resize ----------
-    window.addEventListener('resize', ()=>{
-      camera.aspect = innerWidth/innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth, innerHeight);
-    });
+    window.addEventListener('mousedown', (e)=>{ if(e.button===0) fireWeapon(); });
 
-    // ---------- Main loop ----------
-    const velocity = new THREE.Vector3();
-    const direction = new THREE.Vector3();
-    const speed = 5; // m/s
-    let prevTime = performance.now();
+    // reload
+    window.addEventListener('keydown', (e)=>{ if(e.key==='r' || e.key==='R'){ reloadWeapon(); } if(e.key==='1') switchWeapon(0); if(e.key==='2') switchWeapon(1); if(e.key==='3') switchWeapon(2); });
+    function reloadWeapon(){ const w = weaponData[activeWeapon]; if(w.reserve<=0) return; const need = w.mag - w.ammo; const take = Math.min(need, w.reserve); w.ammo += take; w.reserve -= take; updateHUD(); }
 
-    function animate(){
-      const time = performance.now();
-      const delta = (time - prevTime) / 1000;
+    // ---------- Movement ----------
+    const move = {forward:false,backward:false,left:false,right:false}; window.addEventListener('keydown', e=>{ if(e.code==='KeyW') move.forward=true; if(e.code==='KeyS') move.backward=true; if(e.code==='KeyA') move.left=true; if(e.code==='KeyD') move.right=true; }); window.addEventListener('keyup', e=>{ if(e.code==='KeyW') move.forward=false; if(e.code==='KeyS') move.backward=false; if(e.code==='KeyA') move.left=false; if(e.code==='KeyD') move.right=false; });
 
+    // ---------- Animation loop ----------
+    let prev = performance.now();
+    function animate(){ const now = performance.now(); const dt = Math.min((now-prev)/1000, 0.05); prev = now;
       // movement
-      velocity.x -= velocity.x * 10.0 * delta;
-      velocity.z -= velocity.z * 10.0 * delta;
+      const speed = 5; const velocity = new THREE.Vector3(); if(move.forward) velocity.z -= speed*dt; if(move.backward) velocity.z += speed*dt; if(move.left) velocity.x -= speed*dt; if(move.right) velocity.x += speed*dt; // apply in camera space
+      const forward = new THREE.Vector3(); camera.getWorldDirection(forward); forward.y = 0; forward.normalize(); const right = new THREE.Vector3().crossVectors(camera.up, forward).normalize(); camera.position.addScaledVector(forward, -velocity.z); camera.position.addScaledVector(right, velocity.x);
 
-      direction.z = Number(move.forward) - Number(move.backward);
-      direction.x = Number(move.right) - Number(move.left);
-      direction.normalize();
-
-      if(move.forward || move.backward) velocity.z -= direction.z * speed * delta;
-      if(move.left || move.right) velocity.x -= direction.x * speed * delta;
-
-      controls.moveRight(-velocity.x * delta);
-      controls.moveForward(-velocity.z * delta);
-
-      // simple bobbing for hands
-      const t = time / 200;
-      hands.position.y = -0.25 + Math.sin(t) * 0.005;
-      hands.rotation.x = Math.sin(t*0.5) * 0.002;
+      // hands bobbing (idle)
+      const t = now/200; handGroup.position.y = -0.25 + Math.sin(t)*0.006;
+      // weapon animations (recoil/slide)
+      weapons.forEach(w=>{
+        if(w.userData.anim){
+          // decay values
+          for(const k in w.userData.anim) w.userData.anim[k] = Math.max(0, w.userData.anim[k] - dt*6);
+          // apply recoil as quick backward and rotation
+          const r = w.userData.anim.recoil*0.035;
+          w.position.z = -0.2 - r;
+          w.position.y = -0.12 + w.userData.anim.slide*0.02;
+          w.rotation.x = -0.15 - w.userData.anim.recoil*0.08;
+        }
+      });
 
       renderer.render(scene, camera);
-      prevTime = time;
       requestAnimationFrame(animate);
     }
     animate();
 
-    // ---------- Helpful notes for extending to multiplayer ----------
-    // This demo is single-player and local. For multiplayer you would:
-    // - Send player position + rotation + activeWeapon to the server
-    // - Each client would render remote players as separate Character meshes
-    // - Keep meshes for other players with their own weapon groups (same models)
-    // - Reconcile latency via interpolation/extrapolation
-    // Consider using WebRTC / WebSockets + a lightweight authoritative server.
+    // Hide loading UI after first frame
+    requestAnimationFrame(()=>{ centerUI.style.display='none'; });
+
+    // ---------- Helpful dev notes ----------
+    console.log('Improved FPS demo ready. Click "Enable Controls" or click the canvas to lock pointer for full mouse look.');
+
+    // ensure HUD updates when switching
+    function setActive(index){ weapons[activeWeapon].visible = false; activeWeapon = index; weapons[activeWeapon].visible = true; updateHUD(); }
+    window.switchWeapon = switchWeapon; // for console testing
+
+    // Expose simple function to respawn crates or add more effects if you want to extend
+
+    // Prevent the page from being black if something fails: basic fallback clear
+    if(!renderer.domElement) document.body.style.background='#000';
+
+    // Resize handling
+    window.addEventListener('resize', ()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 
   </script>
 </body>
